@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ArXiv Physics News</title>
     
+    <!-- PWA Meta Tags -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2c3e50">
     <link rel="apple-touch-icon" href="icon-192.png">
 
     <style>
         :root {
-            /* Light Mode (Default) */
+            /* Light Mode */
             --bg-color: #f4f7f6;
             --header-bg: #ffffff;
             --card-bg: #ffffff;
@@ -54,7 +55,7 @@
             transition: background-color 0.3s, color 0.3s;
         }
 
-        /* --- Compact Header Styling --- */
+        /* Header Layout */
         header {
             max-width: 800px;
             margin: 0 auto 20px auto;
@@ -85,12 +86,20 @@
             margin: 0;
         }
 
+        .version-line {
+            font-size: 0.65rem;
+            color: var(--text-secondary);
+            opacity: 0.6;
+            margin-top: 2px;
+            letter-spacing: 0.5px;
+        }
+
         /* Controls Toolbar */
         .controls {
             display: flex;
             flex-wrap: wrap;
             justify-content: center;
-            align-items: center; /* Vertically center everything */
+            align-items: center;
             gap: 10px;
             padding-top: 10px;
             border-top: 1px solid var(--border-color);
@@ -119,7 +128,7 @@
             color-scheme: light dark;
         }
 
-        /* Common Button Styles */
+        /* Buttons */
         button {
             padding: 7px 15px;
             font-size: 0.9rem;
@@ -128,7 +137,7 @@
             font-weight: 600;
             border: none;
             transition: opacity 0.2s;
-            height: 34px; /* Force consistent height */
+            height: 34px;
         }
         button:hover { opacity: 0.9; }
 
@@ -147,7 +156,7 @@
         }
         #theme-btn:hover { border-color: var(--primary-color); }
 
-        /* --- News Feed --- */
+        /* News Cards */
         #news-container {
             max-width: 800px;
             margin: 0 auto;
@@ -207,10 +216,33 @@
         }
         .read-more-btn:hover { opacity: 0.9; }
 
-        .loading, .error { text-align: center; padding: 30px; color: var(--text-secondary); }
+        /* Status & Loading Spinner */
+        .loading, .error {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-secondary);
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 5px var(--shadow);
+        }
         .error { color: var(--accent-color); }
 
-        /* Mobile adjustments */
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-color);
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 12px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Mobile Layout */
         @media (max-width: 600px) {
             .controls { gap: 10px; }
             .input-group { flex-basis: 45%; flex-grow: 1; flex-direction: column; align-items: flex-start; }
@@ -225,6 +257,7 @@
     <div class="header-top">
         <h1>Physics News</h1>
         <p class="subtitle">Pop-Ph & Ed-Ph</p>
+        <div class="version-line">v2.1</div>
     </div>
     
     <div class="controls">
@@ -243,11 +276,14 @@
 </header>
 
 <div id="news-container">
-    <div class="loading">Initializing...</div>
+    <div class="loading">
+        <div class="spinner"></div>
+        <p>Initializing...</p>
+    </div>
 </div>
 
 <script>
-    // --- Theme Logic ---
+    // --- Theme Management ---
     function toggleTheme() {
         const html = document.documentElement;
         const btn = document.getElementById('theme-btn');
@@ -255,11 +291,11 @@
         
         if (currentTheme === 'dark') {
             html.setAttribute('data-theme', 'light');
-            btn.textContent = '🌙'; // Icon for Light Mode (switch to dark)
+            btn.textContent = '🌙';
             localStorage.setItem('theme', 'light');
         } else {
             html.setAttribute('data-theme', 'dark');
-            btn.textContent = '☀️'; // Icon for Dark Mode (switch to light)
+            btn.textContent = '☀️';
             localStorage.setItem('theme', 'dark');
         }
     }
@@ -294,7 +330,32 @@
         return el ? el.textContent : '';
     }
 
-    // --- Main Logic ---
+    // Timeout fetch wrapper
+    async function fetchWithTimeout(resource, options = {}) {
+        const { timeout = 7000 } = options;
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        try {
+            const response = await fetch(resource, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            return response;
+        } catch (err) {
+            clearTimeout(id);
+            throw err;
+        }
+    }
+
+    // CORS Proxies Pool for fallback
+    const PROXIES = [
+        { name: 'CorsProxy', buildUrl: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
+        { name: 'AllOrigins', buildUrl: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+        { name: 'CodeTabs', buildUrl: (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` }
+    ];
+
+    // --- Main Fetch Function ---
     window.onload = function() {
         const today = new Date();
         const twoWeeksAgo = new Date();
@@ -311,24 +372,70 @@
         const startDateVal = document.getElementById('start-date').value;
         const endDateVal = document.getElementById('end-date').value;
 
-        if (!startDateVal || !endDateVal) { alert("Please select both start and end dates."); return; }
+        if (!startDateVal || !endDateVal) { 
+            alert("Please select both start and end dates."); 
+            return; 
+        }
 
-        container.innerHTML = '<div class="loading">Fetching papers...</div>';
+        const updateStatus = (msg) => {
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p style="margin:0; font-size:0.9rem;">${msg}</p>
+                </div>`;
+        };
+
+        updateStatus("Preparing query...");
 
         const startQuery = getApiDateStart(startDateVal);
         const endQuery = getApiDateEnd(endDateVal);
         const query = `search_query=(cat:physics.pop-ph OR cat:physics.ed-ph) AND submittedDate:[${startQuery} TO ${endQuery}]&sortBy=submittedDate&sortOrder=descending&max_results=50`;
-
         const arxivUrl = `http://export.arxiv.org/api/query?${query}`;
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(arxivUrl)}`;
+
+        let xmlTextData = null;
+        let lastErrorMessage = "";
+
+        // Loop through proxy pool until one succeeds
+        for (let i = 0; i < PROXIES.length; i++) {
+            const proxy = PROXIES[i];
+            const proxyUrl = proxy.buildUrl(arxivUrl);
+            
+            updateStatus(`Connecting to arXiv via ${proxy.name} (Attempt ${i + 1}/${PROXIES.length})...`);
+
+            try {
+                const response = await fetchWithTimeout(proxyUrl, { timeout: 7000 });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                updateStatus(`Receiving data from ${proxy.name}...`);
+                const text = await response.text();
+
+                if (text && (text.includes('<feed') || text.includes('<entry') || text.includes('xmlns'))) {
+                    xmlTextData = text;
+                    break;
+                } else {
+                    throw new Error("Invalid or empty response structure");
+                }
+            } catch (err) {
+                console.warn(`Proxy ${proxy.name} failed:`, err);
+                lastErrorMessage = err.name === 'AbortError' ? 'Connection timed out (7s)' : err.message;
+            }
+        }
+
+        if (!xmlTextData) {
+            container.innerHTML = `
+                <div class="error">
+                    <strong>Unable to Connect to arXiv</strong><br>
+                    <p style="font-size: 0.85rem; margin: 8px 0 15px 0;">All CORS proxies timed out or were unreachable.<br>Details: ${lastErrorMessage}</p>
+                    <button onclick="fetchArxivNews()" id="update-btn" style="padding: 6px 14px; font-size:0.85rem;">Retry Connection</button>
+                </div>`;
+            return;
+        }
+
+        updateStatus("Parsing arXiv papers...");
 
         try {
-            const response = await fetch(proxyUrl);
-            if (!response.ok) throw new Error(`Network error: ${response.statusText}`);
-            
-            const strData = await response.text();
             const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(strData, "text/xml");
+            const xmlDoc = parser.parseFromString(xmlTextData, "text/xml");
             const entries = xmlDoc.getElementsByTagName("entry");
 
             container.innerHTML = '';
@@ -374,16 +481,16 @@
             });
 
         } catch (error) {
-            console.error('App Error:', error);
+            console.error('Parsing Error:', error);
             container.innerHTML = `
                 <div class="error">
-                    <strong>Failed to load news.</strong><br>
-                    <small>Error details: ${error.message}</small>
+                    <strong>Failed to parse arXiv data.</strong><br>
+                    <small>${error.message}</small>
                 </div>`;
         }
     }
 
-    // --- PWA Service Worker Registration ---
+    // --- Service Worker Registration ---
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('./sw.js')
