@@ -257,7 +257,7 @@
     <div class="header-top">
         <h1>Physics News</h1>
         <p class="subtitle">Pop-Ph & Ed-Ph</p>
-        <div class="version-line">v2.1</div>
+        <div class="version-line">v2.15</div>
     </div>
     
     <div class="controls">
@@ -330,9 +330,8 @@
         return el ? el.textContent : '';
     }
 
-    // Timeout fetch wrapper
     async function fetchWithTimeout(resource, options = {}) {
-        const { timeout = 7000 } = options;
+        const { timeout = 10000 } = options;
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeout);
         try {
@@ -348,11 +347,11 @@
         }
     }
 
-    // CORS Proxies Pool for fallback
+    // Reliable public proxies (AllOrigins, CodeTabs, ThingProxy)
     const PROXIES = [
-        { name: 'CorsProxy', buildUrl: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
         { name: 'AllOrigins', buildUrl: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
-        { name: 'CodeTabs', buildUrl: (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` }
+        { name: 'CodeTabs', buildUrl: (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` },
+        { name: 'ThingProxy', buildUrl: (url) => `https://thingproxy.freeboard.io/fetch/${url}` }
     ];
 
     // --- Main Fetch Function ---
@@ -390,20 +389,21 @@
         const startQuery = getApiDateStart(startDateVal);
         const endQuery = getApiDateEnd(endDateVal);
         const query = `search_query=(cat:physics.pop-ph OR cat:physics.ed-ph) AND submittedDate:[${startQuery} TO ${endQuery}]&sortBy=submittedDate&sortOrder=descending&max_results=50`;
-        const arxivUrl = `http://export.arxiv.org/api/query?${query}`;
+        
+        // Enforce HTTPS to avoid Mixed Content errors on GitHub Pages
+        const arxivUrl = `https://export.arxiv.org/api/query?${query}`;
 
         let xmlTextData = null;
         let lastErrorMessage = "";
 
-        // Loop through proxy pool until one succeeds
         for (let i = 0; i < PROXIES.length; i++) {
             const proxy = PROXIES[i];
             const proxyUrl = proxy.buildUrl(arxivUrl);
             
-            updateStatus(`Connecting to arXiv via ${proxy.name} (Attempt ${i + 1}/${PROXIES.length})...`);
+            updateStatus(`Connecting via ${proxy.name} (Attempt ${i + 1}/${PROXIES.length})...`);
 
             try {
-                const response = await fetchWithTimeout(proxyUrl, { timeout: 7000 });
+                const response = await fetchWithTimeout(proxyUrl, { timeout: 10000 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
                 updateStatus(`Receiving data from ${proxy.name}...`);
@@ -413,11 +413,11 @@
                     xmlTextData = text;
                     break;
                 } else {
-                    throw new Error("Invalid or empty response structure");
+                    throw new Error("Invalid response format");
                 }
             } catch (err) {
                 console.warn(`Proxy ${proxy.name} failed:`, err);
-                lastErrorMessage = err.name === 'AbortError' ? 'Connection timed out (7s)' : err.message;
+                lastErrorMessage = err.name === 'AbortError' ? 'Connection timed out (10s)' : err.message;
             }
         }
 
@@ -425,7 +425,7 @@
             container.innerHTML = `
                 <div class="error">
                     <strong>Unable to Connect to arXiv</strong><br>
-                    <p style="font-size: 0.85rem; margin: 8px 0 15px 0;">All CORS proxies timed out or were unreachable.<br>Details: ${lastErrorMessage}</p>
+                    <p style="font-size: 0.85rem; margin: 8px 0 15px 0;">All proxies timed out or failed.<br>Details: ${lastErrorMessage}</p>
                     <button onclick="fetchArxivNews()" id="update-btn" style="padding: 6px 14px; font-size:0.85rem;">Retry Connection</button>
                 </div>`;
             return;
