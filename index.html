@@ -76,7 +76,7 @@
         }
         
         .header-top {
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
         p.subtitle {
@@ -111,13 +111,19 @@
             gap: 5px;
         }
 
+        .input-group.search-group {
+            flex-grow: 1;
+            min-width: 180px;
+        }
+
         .input-group label {
             font-size: 0.8rem;
             color: var(--text-secondary);
             font-weight: 600;
         }
 
-        input[type="date"] {
+        input[type="date"],
+        input[type="text"] {
             padding: 6px 10px;
             font-size: 0.9rem;
             background-color: var(--bg-color);
@@ -126,6 +132,11 @@
             color: var(--text-color);
             font-family: inherit;
             color-scheme: light dark;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            box-sizing: border-box;
         }
 
         /* Buttons */
@@ -246,6 +257,7 @@
         @media (max-width: 600px) {
             .controls { gap: 10px; }
             .input-group { flex-basis: 45%; flex-grow: 1; flex-direction: column; align-items: flex-start; }
+            .input-group.search-group { flex-basis: 100%; }
             .input-group input { width: 100%; box-sizing: border-box; }
             #update-btn, #theme-btn { flex-basis: 45%; flex-grow: 1; }
         }
@@ -257,7 +269,7 @@
     <div class="header-top">
         <h1>Physics News</h1>
         <p class="subtitle">Pop-Ph & Ed-Ph</p>
-        <div class="version-line">v2.16</div>
+        <div class="version-line">v2.2</div>
     </div>
     
     <div class="controls">
@@ -268,6 +280,10 @@
         <div class="input-group">
             <label for="end-date">End</label>
             <input type="date" id="end-date">
+        </div>
+        <div class="input-group search-group">
+            <label for="search-input">Search</label>
+            <input type="text" id="search-input" placeholder="Filter quantum, AI, authors..." oninput="filterPapers()">
         </div>
 
         <button id="update-btn" onclick="fetchArxivNews()">Update</button>
@@ -347,6 +363,39 @@
         } catch (err) {
             clearTimeout(id);
             throw err;
+        }
+    }
+
+    // --- Real-time Keyword Search Filter ---
+    function filterPapers() {
+        const query = document.getElementById('search-input').value.toLowerCase().trim();
+        const cards = document.querySelectorAll('.article-card');
+        let visibleCount = 0;
+
+        cards.forEach(card => {
+            const textContent = card.textContent.toLowerCase();
+            if (textContent.includes(query)) {
+                card.style.display = '';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        // Handle empty filter result notice
+        let noMatchNotice = document.getElementById('no-filter-match');
+        if (visibleCount === 0 && cards.length > 0) {
+            if (!noMatchNotice) {
+                noMatchNotice = document.createElement('div');
+                noMatchNotice.id = 'no-filter-match';
+                noMatchNotice.className = 'error';
+                noMatchNotice.innerHTML = `No loaded papers match "<strong>${query}</strong>".`;
+                document.getElementById('news-container').appendChild(noMatchNotice);
+            } else {
+                noMatchNotice.innerHTML = `No loaded papers match "<strong>${query}</strong>".`;
+            }
+        } else if (noMatchNotice) {
+            noMatchNotice.remove();
         }
     }
 
@@ -444,6 +493,9 @@
                 `;
                 container.appendChild(card);
             });
+
+            // Re-apply active search filter if query text is present
+            filterPapers();
 
         } catch (err) {
             console.error('Fetch Error:', err);
