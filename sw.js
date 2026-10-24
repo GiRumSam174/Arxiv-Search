@@ -1,5 +1,5 @@
 // I updated the version to 'v2' to force the browser to reload your new HTML
-const CACHE_NAME = 'physics-news-v2';
+const CACHE_NAME = 'physics-news-v2.1';
 
 const ASSETS_TO_CACHE = [
     './',
